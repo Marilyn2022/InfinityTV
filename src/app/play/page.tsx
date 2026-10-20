@@ -1866,7 +1866,10 @@ function PlayPageClient() {
   };
 
   // 完整测速（桌面设备）
-  const fullSpeedTest = async (sources: SearchResult[], weights: Record<string, number> = {}): Promise<SearchResult> => {
+  const fullSpeedTest = async (
+    sources: SearchResult[],
+    weights: Record<string, number> = {},
+  ): Promise<SearchResult> => {
     // 固定并发数测速，避免源数量多时同时创建大量 hls 实例拖垮设备
     const MAX_CONCURRENT_TEST = 4;
     // 限制最大测试数量为20个源（平衡速度和覆盖率）
@@ -1917,9 +1920,8 @@ function PlayPageClient() {
           return;
         }
 
-        const episodeUrl = source.episodes.length > 1
-          ? source.episodes[1]
-          : source.episodes[0];
+        const episodeUrl =
+          source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
 
         const testResult = await getVideoResolutionFromM3u8(episodeUrl, {
           timeoutMs: 9000,
@@ -1952,7 +1954,9 @@ function PlayPageClient() {
         const is2KHighSpeed = quality === '2K' && speedMBps >= 6;
 
         if (is4KHighSpeed || is2KHighSpeed) {
-          console.log(`✓ 找到顶级优质源: ${source.source_name} (${quality}, ${testResult.loadSpeed})，停止测速`);
+          console.log(
+            `✓ 找到顶级优质源: ${source.source_name} (${quality}, ${testResult.loadSpeed})，停止测速`,
+          );
           shouldStop = true;
         }
       } catch (error) {
@@ -1979,10 +1983,10 @@ function PlayPageClient() {
           await testOne(current);
           // 任务间延迟，让资源有时间清理
           if (cursor < sourcesToTest.length && !shouldStop) {
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise((resolve) => setTimeout(resolve, 200));
           }
         }
-      }
+      },
     );
     await Promise.all(workers);
 
@@ -4748,10 +4752,10 @@ function PlayPageClient() {
           // 🔥 修复：标记切换中，阻止 video:ratechange 将浏览器重置的 1.0 保存到 localStorage
           isSourceSwitchingRef.current = true;
 
-        // ☁️ 新地址切换，重置 Worker 代理降级标记（非 m3u8 路径用）
-        artPlayerRef.current._proxyFallbackDone = false;
-        // 切换的新地址可能是 m3u8 代理地址，也可能是普通格式，每次都要重新指定 type
-        artPlayerRef.current.option.type = getArtPlayerType(videoUrl);
+          // ☁️ 新地址切换，重置 Worker 代理降级标记（非 m3u8 路径用）
+          artPlayerRef.current._proxyFallbackDone = false;
+          // 切换的新地址可能是 m3u8 代理地址，也可能是普通格式，每次都要重新指定 type
+          artPlayerRef.current.option.type = getArtPlayerType(videoUrl);
 
           let switchPromise: Promise<any>;
           if (isEpisodeChange) {
@@ -4900,52 +4904,52 @@ function PlayPageClient() {
         // 重新启用5.3.0内存优化功能，但使用false参数避免清空DOM
         Artplayer.REMOVE_SRC_WHEN_DESTROY = true;
 
-      artPlayerRef.current = new Artplayer({
-        container: artRef.current,
-        url: videoUrl,
-        // 代理地址的扩展名无法被 ArtPlayer 识别为 m3u8，必须显式指定
-        type: getArtPlayerType(videoUrl),
-        poster: videoCover,
-        volume: 0.7,
-        isLive: false,
-        // iOS设备需要静音才能自动播放，参考ArtPlayer源码处理
-        muted: isIOS || isSafari,
-        autoplay: true,
-        pip: true,
-        autoSize: false,
-        autoMini: false,
-        screenshot: !isMobile, // 桌面端启用截图功能
-        setting: true,
-        loop: false,
-        flip: false,
-        playbackRate: true,
-        aspectRatio: false,
-        fullscreen: true,
-        fullscreenWeb: true,
-        subtitleOffset: false,
-        miniProgressBar: false,
-        mutex: true,
-        playsInline: true,
-        autoPlayback: false,
-        theme: '#22c55e',
-        lang: 'zh-cn',
-        hotkey: false,
-        fastForward: true,
-        autoOrientation: true,
-        lock: true,
-        // AirPlay 仅在支持 WebKit API 的浏览器中启用
-        // 主要是 Safari (桌面和移动端) 和 iOS 上的其他浏览器
-        airplay: isIOS || isSafari,
-        moreVideoAttr: {
-          crossOrigin: 'anonymous',
-        },
-        // HLS 支持配置
-        customType: {
-          m3u8: function (video: HTMLVideoElement, url: string) {
-            if (!Hls) {
-              console.error('HLS.js 未加载');
-              return;
-            }
+        artPlayerRef.current = new Artplayer({
+          container: artRef.current,
+          url: videoUrl,
+          // 代理地址的扩展名无法被 ArtPlayer 识别为 m3u8，必须显式指定
+          type: getArtPlayerType(videoUrl),
+          poster: videoCover,
+          volume: 0.7,
+          isLive: false,
+          // iOS设备需要静音才能自动播放，参考ArtPlayer源码处理
+          muted: isIOS || isSafari,
+          autoplay: true,
+          pip: true,
+          autoSize: false,
+          autoMini: false,
+          screenshot: !isMobile, // 桌面端启用截图功能
+          setting: true,
+          loop: false,
+          flip: false,
+          playbackRate: true,
+          aspectRatio: false,
+          fullscreen: true,
+          fullscreenWeb: true,
+          subtitleOffset: false,
+          miniProgressBar: false,
+          mutex: true,
+          playsInline: true,
+          autoPlayback: false,
+          theme: '#22c55e',
+          lang: 'zh-cn',
+          hotkey: false,
+          fastForward: true,
+          autoOrientation: true,
+          lock: true,
+          // AirPlay 仅在支持 WebKit API 的浏览器中启用
+          // 主要是 Safari (桌面和移动端) 和 iOS 上的其他浏览器
+          airplay: isIOS || isSafari,
+          moreVideoAttr: {
+            crossOrigin: 'anonymous',
+          },
+          // HLS 支持配置
+          customType: {
+            m3u8: function (video: HTMLVideoElement, url: string) {
+              if (!Hls) {
+                console.error('HLS.js 未加载');
+                return;
+              }
 
               if (video.hls) {
                 video.hls.destroy();
@@ -4966,7 +4970,12 @@ function PlayPageClient() {
               // 🚀 根据 HLS.js 官方源码的最佳实践配置
               const hls = new Hls({
                 debug: false,
-                enableWorker: true,
+                // iOS Safari 已知 Web Worker + URL.createObjectURL(blob) 存在兼容问题
+                // 参考：https://github.com/video-dev/hls.js/issues/2064
+                enableWorker: !isIOSGlobal,
+                // iOS 17.1+ 优先使用 ManagedMediaSource 以获得更稳定的 MSE 体验
+                // 参考：https://developer.mozilla.org/en-US/docs/Web/API/ManagedMediaSource
+                preferManagedMediaSource: true,
                 // 关闭低延迟模式以改善点播体验 - Issue #194
                 // HLS.js 默认 lowLatencyMode: true，主要为 LL-HLS 直播流设计
                 // 点播场景下会导致：缓冲区过小、网络波动时容易卡顿、CPU 负担增加
@@ -5040,20 +5049,22 @@ function PlayPageClient() {
                   },
                 },
 
-              /* 优化的 HLS Loader：广告过滤 + 并发分片预取 */
-              loader: blockAdEnabledRef.current
-                ? class extends OptimizedHlsLoader {
-                    constructor(config: any) {
-                      super({
-                        ...config,
-                        filterAds: true,
-                        enableDirectConnect: false,
-                        sourceKey: '',
-                      });
+                /* HLS Loader：广告过滤（基于 hls.js 顺序加载设计） */
+                loader: blockAdEnabledRef.current
+                  ? class extends OptimizedHlsLoader {
+                      constructor(config: any) {
+                        super({
+                          ...config,
+                          filterAds: true,
+                          enableDirectConnect: false,
+                          sourceKey: '',
+                          customAdFilterCode: customAdFilterCodeRef.current,
+                          currentSource: currentSourceRef.current,
+                        });
+                      }
                     }
-                  }
-                : Hls.DefaultConfig.loader,
-            });
+                  : Hls.DefaultConfig.loader,
+              });
 
               hls.loadSource(url);
               hls.attachMedia(video);
@@ -6502,10 +6513,6 @@ function PlayPageClient() {
           }
         });
 
-        artPlayerRef.current.on('video:ended', () => {
-          releaseWakeLock();
-        });
-
         // 如果播放器初始化时已经在播放状态，则请求 Wake Lock
         if (artPlayerRef.current && !artPlayerRef.current.paused) {
           requestWakeLock();
@@ -6814,7 +6821,10 @@ function PlayPageClient() {
           // ☁️ Worker 代理播放失败时，自动降级为直连原始地址
           // hls.js 已接管时（video.hls 存在），降级在 customType.m3u8 的 Hls.Events.ERROR 里完成，此处跳过避免重复；
           // 但 hls.js 没启动（如 type 未识别）时没有任何人会降级，必须在这里兜底
-          if (!artPlayerRef.current._proxyFallbackDone && !artPlayerRef.current.video?.hls) {
+          if (
+            !artPlayerRef.current._proxyFallbackDone &&
+            !artPlayerRef.current.video?.hls
+          ) {
             const rawUrl = stripVideoPlayProxy(videoUrl);
             if (rawUrl) {
               console.warn('Worker 代理播放错误，降级为直连:', rawUrl);
@@ -6885,30 +6895,18 @@ function PlayPageClient() {
           }
         });
 
-        artPlayerRef.current.on('pause', () => {
-          // 🔥 关键修复：暂停时也检查是否在片尾，避免保存错误的进度
-          const currentTime = artPlayerRef.current?.currentTime || 0;
-          const duration = artPlayerRef.current?.duration || 0;
-          const remainingTime = duration - currentTime;
-          const isNearEnd = duration > 0 && remainingTime < 180; // 最后3分钟
-
-          if (!isNearEnd) {
-            saveCurrentPlayProgress();
-          }
-        });
-
         if (artPlayerRef.current?.video) {
           ensureVideoSource(
             artPlayerRef.current.video as HTMLVideoElement,
             videoUrl,
           );
         }
-    } catch (err) {
-      console.error('创建播放器失败:', err);
-      // 重置集数切换标识
-      isEpisodeChangingRef.current = false;
-      setError('播放器初始化失败');
-    }
+      } catch (err) {
+        console.error('创建播放器失败:', err);
+        // 重置集数切换标识
+        isEpisodeChangingRef.current = false;
+        setError('播放器初始化失败');
+      }
     }; // 结束 initPlayer 函数
 
     // 动态导入 ArtPlayer 并初始化

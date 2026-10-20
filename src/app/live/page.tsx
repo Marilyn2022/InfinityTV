@@ -25,9 +25,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
-import {
-  debounce,
-} from '@/lib/channel-search';
+import { debounce } from '@/lib/channel-search';
 import {
   deleteFavorite,
   generateStorageKey,
@@ -37,10 +35,7 @@ import {
 } from '@/lib/db.client';
 import OptimizedHlsLoader from '@/lib/hls-loader';
 import { parseCustomTimeFormat } from '@/lib/time';
-import {
-  devicePerformance,
-  isMobile,
-  isSafari} from '@/lib/utils';
+import { devicePerformance, isMobile, isSafari } from '@/lib/utils';
 import { useInView } from '@/hooks/useInView';
 import { useLiveSync } from '@/hooks/useLiveSync';
 import { useTabsDragScroll } from '@/hooks/useTabsDragScroll';
@@ -1824,6 +1819,9 @@ function LivePageClient() {
       // Worker 配置 - 根据设备性能和浏览器能力
       enableWorker: !isMobile && !isSafari && devicePerformance !== 'low',
 
+      // iOS 17.1+ 优先使用 ManagedMediaSource 以获得更稳定的 MSE 体验
+      // 参考：https://developer.mozilla.org/en-US/docs/Web/API/ManagedMediaSource
+      preferManagedMediaSource: true,
       // 低延迟模式 - 仅在高性能非移动设备上启用 (源码默认为true)
       lowLatencyMode: !isMobile && devicePerformance === 'high',
 
@@ -1898,13 +1896,14 @@ function LivePageClient() {
         },
       }),
 
-      /* 优化的 HLS Loader：直连模式 + 源标识 + 并发分片预取 */
+      /* HLS Loader：直连模式 + 源标识（基于 hls.js 顺序加载设计） */
       loader: class extends OptimizedHlsLoader {
         constructor(config: any) {
           super({
             ...config,
             filterAds: false,
-            enableDirectConnect: localStorage.getItem('liveDirectConnect') === 'true',
+            enableDirectConnect:
+              localStorage.getItem('liveDirectConnect') === 'true',
             sourceKey: currentSourceRef.current?.key || '',
           });
         }
@@ -2123,11 +2122,11 @@ function LivePageClient() {
     });
   }
 
-  // FLV 播放器加载函数
+  // FLV 播放器加载函数（使用 mpegts.js）
   function flvLoader(video: HTMLVideoElement, url: string, art: any) {
-    const flvjs = (window as any).DynamicFlvjs;
-    if (!flvjs || !flvjs.isSupported()) {
-      console.error('flv.js 不支持当前浏览器');
+    const mpegts = (window as any).DynamicMpegts;
+    if (!mpegts || !mpegts.isSupported()) {
+      console.error('mpegts.js 不支持当前浏览器');
       return;
     }
 
@@ -2143,7 +2142,7 @@ function LivePageClient() {
       }
     }
 
-    const flvPlayer = flvjs.createPlayer(
+    const flvPlayer = mpegts.createPlayer(
       {
         type: 'flv',
         url: url,
@@ -2176,10 +2175,10 @@ function LivePageClient() {
     video.flv = flvPlayer;
 
     flvPlayer.on(
-      flvjs.Events.ERROR,
+      mpegts.Events.ERROR,
       (errorType: string, errorDetail: string) => {
         console.error('FLV Error:', errorType, errorDetail);
-        if (errorType === flvjs.ErrorTypes.NETWORK_ERROR) {
+        if (errorType === mpegts.ErrorTypes.NETWORK_ERROR) {
           flvNetworkRetryCount++;
           console.log(
             `FLV 网络错误 (${flvNetworkRetryCount}/${MAX_FLV_NETWORK_RETRIES})，尝试重新加载...`,
@@ -2207,7 +2206,7 @@ function LivePageClient() {
               console.warn('FLV 重新加载失败:', e);
             }
           }, 2000 * flvNetworkRetryCount);
-        } else if (errorType === flvjs.ErrorTypes.MEDIA_ERROR) {
+        } else if (errorType === mpegts.ErrorTypes.MEDIA_ERROR) {
           console.error('FLV 媒体错误:', errorDetail);
           setUnsupportedType('media-error');
           setIsVideoLoading(false);
@@ -2439,21 +2438,21 @@ function LivePageClient() {
       }
     }; // 结束 initPlayer 函数
 
-    // 动态导入 ArtPlayer 和 flv.js 并初始化
+    // 动态导入 ArtPlayer 和 mpegts.js 并初始化
     const loadAndInit = async () => {
       try {
         const { default: Artplayer } = await import('artplayer');
 
-        // 动态导入 flv.js（避免 SSR 问题）
-        const flvjs = await import('flv.js');
+        // 动态导入 mpegts.js（避免 SSR 问题）
+        const mpegts = await import('mpegts.js');
 
         // 将导入的模块设置为全局变量供 initPlayer 使用
         (window as any).DynamicArtplayer = Artplayer;
-        (window as any).DynamicFlvjs = flvjs.default;
+        (window as any).DynamicMpegts = mpegts.default;
 
         await initPlayer();
       } catch (error) {
-        console.error('动态导入 ArtPlayer 或 flv.js 失败:', error);
+        console.error('动态导入 ArtPlayer 或 mpegts.js 失败:', error);
         // 不设置错误，只记录日志
       }
     };
