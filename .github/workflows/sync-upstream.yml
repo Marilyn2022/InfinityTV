@@ -32,9 +32,34 @@ jobs:
 
           git checkout -B sync/upstream origin/main
           if ! git merge --no-edit upstream/main; then
-            git merge --abort || true
-            echo "Upstream merge has conflicts. Resolve them manually." >&2
-            exit 1
+            conflicts=$(git diff --name-only --diff-filter=U)
+            unexpected=$(printf '%s\n' "$conflicts" | grep -v -E '^(src/lib/utils\.ts|src/lib/version\.ts)$' || true)
+            if [ -z "$conflicts" ] || [ -n "$unexpected" ]; then
+              git merge --abort || true
+              echo "Upstream merge has conflicts outside the known local customizations. Resolve them manually." >&2
+              exit 1
+            fi
+
+            # Keep InfinityTV's custom utility and version files, while applying
+            # upstream's compatibility behavior for legacy Douban proxy values.
+            git checkout --ours -- src/lib/utils.ts src/lib/version.ts
+            python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lib/utils.ts")
+          content = path.read_text()
+          replacements = {
+              "if (storedType === 'direct') {": "if (storedType === 'direct' || storedType === 'img3') {",
+              "const effectiveRuntimeType = (runtimeType === 'direct') ? 'server' : runtimeType;": "const effectiveRuntimeType = (runtimeType === 'direct' || runtimeType === 'img3') ? 'server' : runtimeType;",
+          }
+          for old, new in replacements.items():
+              if old not in content:
+                  raise SystemExit(f"Expected Douban proxy logic not found: {old}")
+              content = content.replace(old, new, 1)
+          path.write_text(content)
+          PY
+            git add src/lib/utils.ts src/lib/version.ts
+            git commit --no-edit
           fi
 
           if git diff --quiet origin/main HEAD; then
