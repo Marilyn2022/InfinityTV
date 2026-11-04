@@ -12,16 +12,16 @@ on:
         default: 'latest'
         type: string
   push:
-    branches: [ main, master, dev ]
+    branches: [main, master, dev]
   pull_request:
-    branches: [ main, master, dev ]
+    branches: [main, master, dev]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
   packages: write
   actions: write
 
@@ -38,8 +38,7 @@ jobs:
 
     steps:
       - name: Prepare platform name
-        run: |
-          echo "PLATFORM_NAME=${{ matrix.platform }}" | sed 's|/|-|g' >> $GITHUB_ENV
+        run: echo "PLATFORM_NAME=${{ matrix.platform }}" | sed 's|/|-|g' >> "$GITHUB_ENV"
 
       - name: Checkout source code
         uses: actions/checkout@v6
@@ -48,47 +47,43 @@ jobs:
 
       - name: Check if version changed
         id: version_check
+        shell: bash
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
 
-          # Check if this is the first commit or if previous commit exists
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            git checkout HEAD~1 -- package.json 2>/dev/null || echo "{\"version\":\"0.0.0\"}" > package.json.old
-            PREVIOUS_VERSION=$(node -p "try { require('./package.json').version } catch(e) { '0.0.0' }")
-            git checkout HEAD -- package.json
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            PREVIOUS_VERSION=$(
+              git show HEAD^:package.json 2>/dev/null |
+              node -e "
+                let input = '';
+                process.stdin.on('data', chunk => input += chunk);
+                process.stdin.on('end', () => {
+                  try {
+                    console.log(JSON.parse(input).version || '0.0.0');
+                  } catch {
+                    console.log('0.0.0');
+                  }
+                });
+              "
+            )
           else
             PREVIOUS_VERSION="0.0.0"
           fi
 
-          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+          echo "previous_version=$PREVIOUS_VERSION" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "version_changed=true" >> $GITHUB_OUTPUT
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
             echo "Version changed: $PREVIOUS_VERSION -> $CURRENT_VERSION"
           else
-            echo "version_changed=false" >> $GITHUB_OUTPUT
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
             echo "Version unchanged: $CURRENT_VERSION"
           fi
 
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Set lowercase repository owner
         id: lowercase
+        shell: bash
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
@@ -99,9 +94,34 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.version_check.outputs.current_version }},enable=${{ steps.version_check.outputs.version_changed == 'true' }}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event.inputs.tag != '' }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+
+      - name: Build image for pull request
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          push: false
+          no-cache: true
+          pull: true
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push by digest
+        if: github.event_name != 'pull_request'
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -109,18 +129,20 @@ jobs:
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          tags: ${{ steps.meta.outputs.tags }}
-          outputs: type=image,name=ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv,push-by-digest=true,name-canonical=true,push=true
           no-cache: true
           pull: true
 
       - name: Export digest
+        if: github.event_name != 'pull_request'
+        shell: bash
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v7
         with:
           name: digests-${{ env.PLATFORM_NAME }}
@@ -129,6 +151,7 @@ jobs:
           retention-days: 1
 
   merge:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs:
       - build
@@ -138,27 +161,39 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check version
+      - name: Check if version changed
         id: version_check
+        shell: bash
         run: |
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
 
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            git checkout HEAD~1 -- package.json 2>/dev/null || echo "{\"version\":\"0.0.0\"}" > package.json.old
-            PREVIOUS_VERSION=$(node -p "try { require('./package.json').version } catch(e) { '0.0.0' }")
-            git checkout HEAD -- package.json
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            PREVIOUS_VERSION=$(
+              git show HEAD^:package.json 2>/dev/null |
+              node -e "
+                let input = '';
+                process.stdin.on('data', chunk => input += chunk);
+                process.stdin.on('end', () => {
+                  try {
+                    console.log(JSON.parse(input).version || '0.0.0');
+                  } catch {
+                    console.log('0.0.0');
+                  }
+                });
+              "
+            )
           else
             PREVIOUS_VERSION="0.0.0"
           fi
 
-          echo "previous_version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+          echo "previous_version=$PREVIOUS_VERSION" >> "$GITHUB_OUTPUT"
 
           if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "version_changed=true" >> $GITHUB_OUTPUT
+            echo "version_changed=true" >> "$GITHUB_OUTPUT"
             echo "Version changed: $PREVIOUS_VERSION -> $CURRENT_VERSION"
           else
-            echo "version_changed=false" >> $GITHUB_OUTPUT
+            echo "version_changed=false" >> "$GITHUB_OUTPUT"
             echo "Version unchanged: $CURRENT_VERSION"
           fi
 
@@ -181,40 +216,39 @@ jobs:
 
       - name: Set lowercase repository owner
         id: lowercase
+        shell: bash
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
+        shell: bash
         run: |
-          # Create latest tag only for main/master branch
+          IMAGE="ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv"
+          DIGESTS="$(printf "${IMAGE}@sha256:%s " *)"
+
           if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.ref }}" = "refs/heads/master" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv:latest \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv@sha256:%s ' *)
+            docker buildx imagetools create -t "${IMAGE}:latest" $DIGESTS
           fi
 
-          # Create dev tag for dev branch
           if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv:dev \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv@sha256:%s ' *)
+            docker buildx imagetools create -t "${IMAGE}:dev" $DIGESTS
           fi
 
-          # Create version tag if version changed
           if [ "${{ steps.version_check.outputs.version_changed }}" = "true" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv:${{ steps.version_check.outputs.current_version }} \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv@sha256:%s ' *)
+            docker buildx imagetools create \
+              -t "${IMAGE}:${{ steps.version_check.outputs.current_version }}" \
+              $DIGESTS
           fi
 
-          # Create custom tag if provided
-          if [ -n "${{ github.event.inputs.tag }}" ] && [ "${{ github.event.inputs.tag }}" != "latest" ]; then
-            docker buildx imagetools create -t ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv:${{ github.event.inputs.tag }} \
-              $(printf 'ghcr.io/${{ steps.lowercase.outputs.owner }}/infinitytv@sha256:%s ' *)
+          if [ -n "${{ inputs.tag }}" ] && [ "${{ inputs.tag }}" != "latest" ]; then
+            docker buildx imagetools create -t "${IMAGE}:${{ inputs.tag }}" $DIGESTS
           fi
 
   cleanup-refresh:
+    if: always() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs:
       - merge
-    if: always()
     steps:
       - name: Delete workflow runs
         uses: Mattraks/delete-workflow-runs@v2
